@@ -183,12 +183,30 @@ class ImageGalleryApp:
     def hide_progress_bar(self):
         self.progress_bar.pack_forget()
 
+    def replace_underscores(self, image_path, tag):
+        if self.selected_label in self.tag_map:
+            tags = self.tag_map[self.selected_label]
+            updated_tags = [t.replace('_', ' ') if t == tag else t for t in tags]
+
+            # Update the tag map
+            self.tag_map[self.selected_label] = updated_tags
+
+            # Update the tags file for the image
+            caption_path = image_path.rsplit('.', 1)[0] + '.txt'
+            if os.path.exists(caption_path):
+                with open(caption_path, 'w') as file:
+                    file.write(', '.join(updated_tags))
+
+            # Update the tags display
+            self.display_tags(image_path, self.count_tag_frequencies())
+
+
     def create_context_menu(self, label):
         context_menu = tk.Menu(self.root, tearoff=0)
         context_menu.add_command(label="Delete Image", command=lambda: self.delete_image(label))
+        context_menu.add_command(label="Sort Tags", command=lambda: self.sort_tags(label.image_path))
         context_menu.add_command(label="Open Image", command=lambda: self.open_in_default_app(label.image_path))
         context_menu.add_command(label="Open Caption File", command=lambda: self.open_caption_file(label.image_path))
-
         return context_menu
 
     def delete_image(self, label_to_delete):
@@ -533,6 +551,56 @@ class ImageGalleryApp:
         # Schedule delayed binding
         self.root.after(250, lambda: self.delayed_tag_binding(image_path, tag_labels))
 
+    def sort_tags_by_danbooru_group(self, tags):
+        tag_groups = {
+            "indianred": [],
+            "violet": [],
+            "lightgreen": [],
+            "lightblue": [],
+            "score": [],
+            "source": [],
+            "by": [],
+            "other": []
+        }
+
+        for tag in tags:
+            color = self.tag_colors.get(tag, "other")
+            if tag.startswith("score_"):
+                tag_groups["score"].append(tag)
+            elif tag.startswith("source_"):
+                tag_groups["source"].append(tag)
+            elif tag.startswith("by ") and tag not in self.tag_colors:
+                tag_groups["by"].append(tag)
+            else:
+                if color not in tag_groups:
+                    color = "other"
+                tag_groups[color].append(tag)
+
+        sorted_tags = []
+        sorted_tags.extend(sorted(tag_groups["score"], reverse=True))  # Sort "score_" tags in reverse order
+
+        for group in ["source", "by", "indianred", "violet", "lightgreen", "lightblue", "other"]:
+            sorted_tags.extend(sorted(tag_groups[group]))
+
+        return sorted_tags
+
+    def sort_tags(self, image_path):
+        if self.selected_label in self.tag_map:
+            tags = self.tag_map[self.selected_label]
+            sorted_tags = self.sort_tags_by_danbooru_group(tags)
+
+            # Update the tag map
+            self.tag_map[self.selected_label] = sorted_tags
+
+            # Update the tags file for the image
+            caption_path = image_path.rsplit('.', 1)[0] + '.txt'
+            if os.path.exists(caption_path):
+                with open(caption_path, 'w') as file:
+                    file.write(', '.join(sorted_tags))
+
+            # Update the tags display
+            self.display_tags(image_path, self.count_tag_frequencies())
+
     def delayed_tag_binding(self, image_path, tags):
         # Check if the same image is still selected after the delay
         if self.selected_label and self.selected_label.image_path == image_path:
@@ -540,12 +608,14 @@ class ImageGalleryApp:
                 tag_label.bind("<Button-3>", lambda e, t=tag: self.tag_right_click_menu(e, t))
 
     def tag_right_click_menu(self, event, tag):
-        # Create a context menu for tag removal
+        # Create a context menu for tag options
         menu = tk.Menu(self.root, tearoff=0)
         menu.add_command(label="Remove Tag", command=lambda: self.remove_tag(self.selected_label.image_path, tag))
+        menu.add_command(label="Replace Underscores with Spaces", command=lambda: self.replace_underscores(self.selected_label.image_path, tag))
 
         # Display the menu at the cursor's position
         menu.tk_popup(event.x_root, event.y_root)
+
 
 
     def open_tag_menu(self, tag):
