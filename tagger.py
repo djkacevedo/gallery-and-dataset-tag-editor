@@ -53,6 +53,10 @@ class ImageGalleryApp:
         self.tools_menu.add_command(label="Remove Duplicate tags Selected Image", command=self.remove_duplicate_selected)
         self.menu_bar.add_cascade(label="Tools", menu=self.tools_menu)
 
+        self.tools_menu.add_command(label="Sort Tags for Selected Image", command=self.sort_tags_selected)
+        self.tools_menu.add_command(label="Sort Tags for Visible Images", command=self.sort_tags_visible)
+        self.tools_menu.add_command(label="Sort Tags for All Images", command=self.sort_tags_all)
+
         self.image_labels = []
         self.tag_freq = {}
         self.tag_colors = {}
@@ -204,7 +208,7 @@ class ImageGalleryApp:
     def create_context_menu(self, label):
         context_menu = tk.Menu(self.root, tearoff=0)
         context_menu.add_command(label="Delete Image", command=lambda: self.delete_image(label))
-        context_menu.add_command(label="Sort Tags", command=lambda: self.sort_tags(label.image_path))
+        context_menu.add_command(label="Sort Tags", command=lambda: self.sort_tags_selected())
         context_menu.add_command(label="Open Image", command=lambda: self.open_in_default_app(label.image_path))
         context_menu.add_command(label="Open Caption File", command=lambda: self.open_caption_file(label.image_path))
         return context_menu
@@ -387,6 +391,9 @@ class ImageGalleryApp:
                 self.scroll_to_label(self.selected_label)
 
     def scroll_to_label(self, label):
+        self.scrollable_frame.update_idletasks()  # Update layout
+        if not label.winfo_ismapped():
+            return  # Skip if the label is not visible
         self.scrollable_frame.update_idletasks()  # Update layout
         label_x, label_y = label.winfo_x(), label.winfo_y()  # Get label position within frame
         label_width, label_height = label.winfo_width(), label.winfo_height()  # Get label size
@@ -584,39 +591,64 @@ class ImageGalleryApp:
 
         return sorted_tags
 
-    def sort_tags(self, image_path):
-        if self.selected_label in self.tag_map:
-            tags = self.tag_map[self.selected_label]
+    def sort_tags_selected(self):
+        if self.selected_label:
+            self.sort_tags(self.selected_label)
+
+    def sort_tags_visible(self):
+        for label in self.image_labels:
+            if label.winfo_ismapped():
+                self.sort_tags(label)
+
+    def sort_tags_all(self):
+        for label in self.image_labels:
+            self.sort_tags(label)
+
+    def sort_tags(self, label):
+        if label in self.tag_map:
+            tags = self.tag_map[label]
             sorted_tags = self.sort_tags_by_danbooru_group(tags)
 
             # Update the tag map
-            self.tag_map[self.selected_label] = sorted_tags
+            self.tag_map[label] = sorted_tags
 
             # Update the tags file for the image
+            image_path = label.image_path
             caption_path = image_path.rsplit('.', 1)[0] + '.txt'
             if os.path.exists(caption_path):
                 with open(caption_path, 'w') as file:
                     file.write(', '.join(sorted_tags))
 
-            # Update the tags display
-            self.display_tags(image_path, self.count_tag_frequencies())
+            # Update the tags display if the selected image's tags were changed
+            if label == self.selected_label:
+                self.display_tags(image_path, self.count_tag_frequencies())
 
     def delayed_tag_binding(self, image_path, tags):
-        # Check if the same image is still selected after the delay
         if self.selected_label and self.selected_label.image_path == image_path:
             for tag_label, tag in tags:
-                tag_label.bind("<Button-3>", lambda e, t=tag: self.tag_right_click_menu(e, t))
+                if tag_label.winfo_ismapped():  # Check if tag label still exists
+                    tag_label.bind("<Button-3>", lambda e, t=tag: self.tag_right_click_menu(e, t))
 
     def tag_right_click_menu(self, event, tag):
         # Create a context menu for tag options
         menu = tk.Menu(self.root, tearoff=0)
         menu.add_command(label="Remove Tag", command=lambda: self.remove_tag(self.selected_label.image_path, tag))
         menu.add_command(label="Replace Underscores with Spaces", command=lambda: self.replace_underscores(self.selected_label.image_path, tag))
+        menu.add_separator()
+        menu.add_command(label="Add to Positive Filter", command=lambda: self.add_to_filter(tag, self.pos_filter_entry))
+        menu.add_command(label="Add to Negative Filter", command=lambda: self.add_to_filter(tag, self.neg_filter_entry))
 
         # Display the menu at the cursor's position
         menu.tk_popup(event.x_root, event.y_root)
 
-
+    def add_to_filter(self, tag, filter_entry):
+        current_filter = filter_entry.get()
+        if current_filter:
+            new_filter = f"{current_filter}, {tag}"
+        else:
+            new_filter = tag
+        filter_entry.delete(0, tk.END)
+        filter_entry.insert(0, new_filter)
 
     def open_tag_menu(self, tag):
         # This function will be triggered when clicking on a tag
@@ -646,10 +678,10 @@ class ImageGalleryApp:
         self.pos_filter_entry.pack(side="left", fill="x", expand=True)
 
         # Positive filter options (AND/OR)
-        pos_and_radio = tk.Radiobutton(self.filter_frame, text="AND", variable=self.pos_filter_option, value=0)
-        pos_and_radio.pack(side="left")
-        pos_or_radio = tk.Radiobutton(self.filter_frame, text="OR", variable=self.pos_filter_option, value=1)
-        pos_or_radio.pack(side="left")
+        self.pos_and_radio = tk.Radiobutton(self.filter_frame, text="AND", variable=self.pos_filter_option, value=0)
+        self.pos_and_radio.pack(side="left")
+        self.pos_or_radio = tk.Radiobutton(self.filter_frame, text="OR", variable=self.pos_filter_option, value=1)
+        self.pos_or_radio.pack(side="left")
 
         # Negative filter
         self.neg_filter_label = tk.Label(self.filter_frame, text="Negative Filter:")
@@ -658,18 +690,30 @@ class ImageGalleryApp:
         self.neg_filter_entry.pack(side="left", fill="x", expand=True)
 
         # Negative filter options (AND/OR)
-        neg_and_radio = tk.Radiobutton(self.filter_frame, text="AND", variable=self.neg_filter_option, value=0)
-        neg_and_radio.pack(side="left")
-        neg_or_radio = tk.Radiobutton(self.filter_frame, text="OR", variable=self.neg_filter_option, value=1)
-        neg_or_radio.pack(side="left")
+        self.neg_and_radio = tk.Radiobutton(self.filter_frame, text="AND", variable=self.neg_filter_option, value=0)
+        self.neg_and_radio.pack(side="left")
+        self.neg_or_radio = tk.Radiobutton(self.filter_frame, text="OR", variable=self.neg_filter_option, value=1)
+        self.neg_or_radio.pack(side="left")
 
         # Filter button
         self.filter_button = tk.Button(self.filter_frame, text="Apply Filter", command=self.apply_filters)
         self.filter_button.pack(side="left", padx=5)
 
+        # Clear filter button
+        self.clear_filter_button = tk.Button(self.filter_frame, text="Clear Filter", command=self.clear_filters)
+        self.clear_filter_button.pack(side="left", padx=5)
+
         # Checkbox for hiding non-filtered tags
         hide_tags_checkbox = tk.Checkbutton(self.filter_frame, text="Hide non-filtered tags", variable=self.hide_non_filtered_tags)
         hide_tags_checkbox.pack(side="left")
+
+    def clear_filters(self):
+        # Clear the filter entries
+        self.pos_filter_entry.delete(0, 'end')
+        self.neg_filter_entry.delete(0, 'end')
+
+        # Update the gallery view to show all images
+        self.update_gallery_view([], [], self.pos_filter_option.get(), self.neg_filter_option.get())
 
     def apply_filters(self):
         pos_filters = [tag.strip() for tag in self.pos_filter_entry.get().split(',') if tag.strip()]
@@ -680,6 +724,8 @@ class ImageGalleryApp:
 
     def update_gallery_view(self, pos_filters, neg_filters, pos_option, neg_option):
         visible_labels = []  # List to keep track of labels that will be visible
+        selected_visible = False  # Flag to check if selected label is visible
+
         for label in self.image_labels:
             image_tags = self.tag_map[label]
 
@@ -692,6 +738,8 @@ class ImageGalleryApp:
 
             if show_image:
                 visible_labels.append(label)
+                if label == self.selected_label:
+                    selected_visible = True
 
         # Rearrange visible labels in the grid
         row, col = 0, 0
@@ -706,49 +754,72 @@ class ImageGalleryApp:
         for label in set(self.image_labels) - set(visible_labels):
             label.grid_remove()
 
+        # Scroll to keep the selected image in view or select the first visible image
+        if selected_visible:
+            self.scroll_to_label(self.selected_label)
+        elif visible_labels:
+            self.select_image(None, visible_labels[0])
+            self.scroll_to_label(visible_labels[0])
+
+
     def add_tag_entry(self):
-        # Create a frame for tag entry
+        # Create a frame for tag entry and options
         self.tag_entry_frame = tk.Frame(self.right_frame)
         self.tag_entry_frame.pack(side="bottom", fill="x", padx=5, pady=5)
-    
+
         # Tag entry box
         self.tag_entry = tk.Entry(self.tag_entry_frame)
         self.tag_entry.pack(side="left", fill="x", expand=True)
-    
+
+        # Dropdown for selecting the scope of tag addition
+        self.tag_add_options = ["Current Image", "Visible Images", "All Images"]
+        self.tag_add_scope = tk.StringVar(value=self.tag_add_options[0])
+        self.tag_add_dropdown = tk.OptionMenu(self.tag_entry_frame, self.tag_add_scope, *self.tag_add_options)
+        self.tag_add_dropdown.pack(side="left", padx=5)
+
         # Add tag button
         self.add_tag_button = tk.Button(self.tag_entry_frame, text="Add Tag", command=self.add_tag)
         self.add_tag_button.pack(side="left", padx=5)
 
     def add_tag(self):
-        if not self.selected_label or not self.tag_entry.get().strip():
-            return  # Do nothing if no image is selected or the entry is empty
-    
-        # Split the input into individual tags and strip whitespace
-        new_tags = [tag.strip() for tag in self.tag_entry.get().split(',')]
-    
-        # Retrieve existing tags for the selected image
-        image_tags = self.tag_map.get(self.selected_label, [])
-    
-        updated = False
-        for new_tag in new_tags:
-            if new_tag and new_tag not in image_tags:
-                image_tags.append(new_tag)
-                updated = True
-    
-        if updated:
-            # Update the tag map
-            self.tag_map[self.selected_label] = image_tags
-    
-            # Update the tags file for the image
-            image_path = self.selected_label.image_path
-            caption_path = image_path.rsplit('.', 1)[0] + '.txt'
-            with open(caption_path, 'w') as file:
-                file.write(', '.join(image_tags))
-    
-            # Update the tags display
-            self.display_tags(image_path, self.count_tag_frequencies())
-    
+        tags_to_add = [tag.strip() for tag in self.tag_entry.get().split(',') if tag.strip()]
+        if not tags_to_add:
+            return  # Do nothing if no tags are entered
+
+        scope = self.tag_add_scope.get()
+        if scope == "Current Image":
+            self.add_tags_to_image(self.selected_label, tags_to_add)
+        elif scope == "Visible Images":
+            for label in [lbl for lbl in self.image_labels if lbl.winfo_ismapped()]:
+                self.add_tags_to_image(label, tags_to_add)
+        elif scope == "All Images":
+            for label in self.image_labels:
+                self.add_tags_to_image(label, tags_to_add)
+
         self.tag_entry.delete(0, 'end')  # Clear the entry box
+
+    def add_tags_to_image(self, label, tags):
+        if label:
+            image_tags = self.tag_map.get(label, [])
+            updated = False
+            for new_tag in tags:
+                if new_tag and new_tag not in image_tags:
+                    image_tags.append(new_tag)
+                    updated = True
+
+            if updated:
+                # Update the tag map
+                self.tag_map[label] = image_tags
+
+                # Update the tags file for the image
+                image_path = label.image_path
+                caption_path = image_path.rsplit('.', 1)[0] + '.txt'
+                with open(caption_path, 'w') as file:
+                    file.write(', '.join(image_tags))
+
+                # Update the tags display if the selected image's tags were changed
+                if label == self.selected_label:
+                    self.display_tags(image_path, self.count_tag_frequencies())
 
     def save_settings(self):
         settings = {
@@ -870,6 +941,14 @@ class ImageGalleryApp:
         self.filter_button.configure(bg=dark_bg, fg=dark_fg)
         self.tag_entry.configure(bg=dark_text_bg, fg=dark_fg)
         self.add_tag_button.configure(bg=dark_bg, fg=dark_fg)
+        self.pos_and_radio.configure(bg=dark_bg, fg=dark_fg)
+        self.pos_or_radio.configure(bg=dark_bg, fg=dark_fg)
+        self.neg_and_radio.configure(bg=dark_bg, fg=dark_fg)
+        self.neg_or_radio.configure(bg=dark_bg, fg=dark_fg)
+        self.clear_filter_button.configure(bg=dark_bg, fg=dark_fg)
+        self.tag_entry.configure(bg=dark_bg, fg=dark_fg)
+        self.tag_add_dropdown.configure(bg=dark_bg, fg=dark_fg)
+        self.add_tag_button.configure(bg=dark_bg, fg=dark_fg)
 
         if self.selected_label:
             image_path = self.selected_label.image_path
@@ -904,6 +983,14 @@ class ImageGalleryApp:
         self.neg_filter_label.configure(bg=light_text_bg, fg=light_fg)
         self.filter_button.configure(bg=light_bg, fg=light_fg)
         self.tag_entry.configure(bg=light_bg, fg=light_fg)
+        self.add_tag_button.configure(bg=light_bg, fg=light_fg)
+        self.pos_and_radio.configure(bg=light_bg, fg=light_fg)
+        self.pos_or_radio.configure(bg=light_bg, fg=light_fg)
+        self.neg_and_radio.configure(bg=light_bg, fg=light_fg)
+        self.neg_or_radio.configure(bg=light_bg, fg=light_fg)
+        self.clear_filter_button.configure(bg=light_bg, fg=light_fg)
+        self.tag_entry.configure(bg=light_bg, fg=light_fg)
+        self.tag_add_dropdown.configure(bg=light_bg, fg=light_fg)
         self.add_tag_button.configure(bg=light_bg, fg=light_fg)
 
         if self.selected_label:
@@ -942,7 +1029,7 @@ class ImageGalleryApp:
 
 if __name__ == "__main__":
     root = tk.Tk()
-    root.geometry("1360x1024")  # Adjust initial window size
+    root.geometry("1440x1024")  # Adjust initial window size
     app = ImageGalleryApp(root)
 
     root.mainloop()
