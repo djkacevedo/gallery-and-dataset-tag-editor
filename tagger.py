@@ -365,30 +365,29 @@ class ImageGalleryApp:
 
         current_index = visible_labels.index(self.selected_label) if self.selected_label in visible_labels else -1
         row_length = 3  # Adjust based on your column configuration
-    
+
         new_index = current_index
         while True:
             if direction == "left" and new_index > 0:
                 new_index -= 1
-            elif direction == "right" and new_index < len(self.image_labels) - 1:
+            elif direction == "right" and new_index < len(visible_labels) - 1:
                 new_index += 1
             elif direction == "up" and new_index >= row_length:
                 new_index -= row_length
-            elif direction == "down" and new_index + row_length < len(self.image_labels):
+            elif direction == "down" and new_index + row_length < len(visible_labels):
                 new_index += row_length
             else:
                 break  # Stop if no more images in the direction or at the edges
-    
+
             # Check if the new index points to a visible image
-            if self.image_labels[new_index].winfo_ismapped():
+            if visible_labels[new_index].winfo_ismapped():
                 break
-        
+
         if new_index != current_index:
             self.select_image(None, visible_labels[new_index])
-    
+
             # After updating the selection:
-            if self.selected_label:
-                self.scroll_to_label(self.selected_label)
+            self.scroll_to_label(self.selected_label)
 
     def scroll_to_label(self, label):
         self.scrollable_frame.update_idletasks()  # Update layout
