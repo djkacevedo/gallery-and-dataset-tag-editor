@@ -9,7 +9,7 @@ To install and run the Image Gallery Application, follow these steps:
 1. **Clone or download the repository**:
    - If you have `git` installed, you can clone the repository using:
      ```
-     git clone [repository-url]
+     git clone https://github.com/djkacevedo/gallery-and-dataset-tag-editor.git
      ```
    - Alternatively, download the ZIP file and extract it.
 
