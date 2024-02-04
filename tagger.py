@@ -635,11 +635,23 @@ class ImageGalleryApp:
         menu.add_command(label="Remove Tag", command=lambda: self.remove_tag(self.selected_label.image_path, tag))
         menu.add_command(label="Replace Underscores with Spaces", command=lambda: self.replace_underscores(self.selected_label.image_path, tag))
         menu.add_separator()
+        menu.add_command(label="Copy to Clipboard", command=lambda: self.copy_to_clipboard(tag))
+        menu.add_command(label="Add to Remove Tag", command=lambda: self.add_to_remove_tag_entry(tag))
+        menu.add_separator()
         menu.add_command(label="Add to Positive Filter", command=lambda: self.add_to_filter(tag, self.pos_filter_entry))
         menu.add_command(label="Add to Negative Filter", command=lambda: self.add_to_filter(tag, self.neg_filter_entry))
 
         # Display the menu at the cursor's position
         menu.tk_popup(event.x_root, event.y_root)
+
+    def add_to_remove_tag_entry(self, tag):
+        current_text = self.remove_tag_entry.get()
+        if current_text:
+            new_text = f"{current_text}, {tag}"
+        else:
+            new_text = tag
+        self.remove_tag_entry.delete(0, tk.END)
+        self.remove_tag_entry.insert(0, new_text)
 
     def add_to_filter(self, tag, filter_entry):
         current_filter = filter_entry.get()
@@ -678,10 +690,10 @@ class ImageGalleryApp:
         self.pos_filter_entry.pack(side="left", fill="x", expand=True)
 
         # Positive filter options (AND/OR)
-        self.pos_and_radio = tk.Radiobutton(self.filter_frame, text="AND", variable=self.pos_filter_option, value=0)
-        self.pos_and_radio.pack(side="left")
-        self.pos_or_radio = tk.Radiobutton(self.filter_frame, text="OR", variable=self.pos_filter_option, value=1)
-        self.pos_or_radio.pack(side="left")
+        pos_and_radio = tk.Radiobutton(self.filter_frame, text="AND", variable=self.pos_filter_option, value=0)
+        pos_and_radio.pack(side="left")
+        pos_or_radio = tk.Radiobutton(self.filter_frame, text="OR", variable=self.pos_filter_option, value=1)
+        pos_or_radio.pack(side="left")
 
         # Negative filter
         self.neg_filter_label = tk.Label(self.filter_frame, text="Negative Filter:")
@@ -690,10 +702,10 @@ class ImageGalleryApp:
         self.neg_filter_entry.pack(side="left", fill="x", expand=True)
 
         # Negative filter options (AND/OR)
-        self.neg_and_radio = tk.Radiobutton(self.filter_frame, text="AND", variable=self.neg_filter_option, value=0)
-        self.neg_and_radio.pack(side="left")
-        self.neg_or_radio = tk.Radiobutton(self.filter_frame, text="OR", variable=self.neg_filter_option, value=1)
-        self.neg_or_radio.pack(side="left")
+        neg_and_radio = tk.Radiobutton(self.filter_frame, text="AND", variable=self.neg_filter_option, value=0)
+        neg_and_radio.pack(side="left")
+        neg_or_radio = tk.Radiobutton(self.filter_frame, text="OR", variable=self.neg_filter_option, value=1)
+        neg_or_radio.pack(side="left")
 
         # Filter button
         self.filter_button = tk.Button(self.filter_frame, text="Apply Filter", command=self.apply_filters)
@@ -706,6 +718,64 @@ class ImageGalleryApp:
         # Checkbox for hiding non-filtered tags
         hide_tags_checkbox = tk.Checkbutton(self.filter_frame, text="Hide non-filtered tags", variable=self.hide_non_filtered_tags)
         hide_tags_checkbox.pack(side="left")
+
+        # Add Remove Tag Frame
+        self.remove_tag_frame = tk.Frame(self.right_frame)
+        self.remove_tag_frame.pack(side="bottom", fill="x", padx=5, pady=5)
+
+        # Remove Tag Entry Box
+        self.remove_tag_entry = tk.Entry(self.remove_tag_frame)
+        self.remove_tag_entry.pack(side="left", fill="x", expand=True)
+
+        # Dropdown for selecting the scope of tag removal
+        self.remove_tag_options = ["Current Image", "Visible Images", "All Images"]
+        self.remove_tag_scope = tk.StringVar(value=self.remove_tag_options[0])
+        self.remove_tag_dropdown = tk.OptionMenu(self.remove_tag_frame, self.remove_tag_scope, *self.remove_tag_options)
+        self.remove_tag_dropdown.pack(side="left", padx=5)
+
+        # Remove tag button
+        self.remove_tag_button = tk.Button(self.remove_tag_frame, text="Remove Tag", command=self.remove_tag)
+        self.remove_tag_button.pack(side="left", padx=5)
+
+    def remove_tag(self):
+        tags_to_remove = [tag.strip() for tag in self.remove_tag_entry.get().split(',') if tag.strip()]
+        if not tags_to_remove:
+            return  # Do nothing if no tags are entered
+
+        scope = self.remove_tag_scope.get()
+        if scope == "Current Image":
+            self.remove_tags_from_image(self.selected_label, tags_to_remove)
+        elif scope == "Visible Images":
+            for label in [lbl for lbl in self.image_labels if lbl.winfo_ismapped()]:
+                self.remove_tags_from_image(label, tags_to_remove)
+        elif scope == "All Images":
+            for label in self.image_labels:
+                self.remove_tags_from_image(label, tags_to_remove)
+
+        self.remove_tag_entry.delete(0, 'end')  # Clear the entry box
+
+    def remove_tags_from_image(self, label, tags):
+        if label:
+            image_tags = self.tag_map.get(label, [])
+            updated = False
+            for tag_to_remove in tags:
+                if tag_to_remove in image_tags:
+                    image_tags.remove(tag_to_remove)
+                    updated = True
+
+            if updated:
+                # Update the tag map
+                self.tag_map[label] = image_tags
+
+                # Update the tags file for the image
+                image_path = label.image_path
+                caption_path = image_path.rsplit('.', 1)[0] + '.txt'
+                with open(caption_path, 'w') as file:
+                    file.write(', '.join(image_tags))
+
+                # Update the tags display if the selected image's tags were changed
+                if label == self.selected_label:
+                    self.display_tags(image_path, self.count_tag_frequencies())
 
     def clear_filters(self):
         # Clear the filter entries
@@ -901,6 +971,11 @@ class ImageGalleryApp:
         except Exception as e:
             print(f"Error loading file '{file_path}': {e}")
 
+    def copy_to_clipboard(self, tag):
+        self.root.clipboard_clear()
+        self.root.clipboard_append(tag)
+        self.root.update() 
+
     def toggle_dark_mode(self):
         if self.dark_mode_enabled.get():
             self.apply_dark_mode()
@@ -941,14 +1016,14 @@ class ImageGalleryApp:
         self.filter_button.configure(bg=dark_bg, fg=dark_fg)
         self.tag_entry.configure(bg=dark_text_bg, fg=dark_fg)
         self.add_tag_button.configure(bg=dark_bg, fg=dark_fg)
-        self.pos_and_radio.configure(bg=dark_bg, fg=dark_fg)
-        self.pos_or_radio.configure(bg=dark_bg, fg=dark_fg)
-        self.neg_and_radio.configure(bg=dark_bg, fg=dark_fg)
-        self.neg_or_radio.configure(bg=dark_bg, fg=dark_fg)
         self.clear_filter_button.configure(bg=dark_bg, fg=dark_fg)
         self.tag_entry.configure(bg=dark_bg, fg=dark_fg)
         self.tag_add_dropdown.configure(bg=dark_bg, fg=dark_fg)
         self.add_tag_button.configure(bg=dark_bg, fg=dark_fg)
+        self.remove_tag_entry.configure(bg=dark_bg, fg=dark_fg)
+        self.remove_tag_dropdown.configure(bg=dark_bg, fg=dark_fg)
+        self.remove_tag_button.configure(bg=dark_bg, fg=dark_fg)
+        self.remove_tag_frame.configure(bg=dark_bg)
 
         if self.selected_label:
             image_path = self.selected_label.image_path
@@ -984,14 +1059,14 @@ class ImageGalleryApp:
         self.filter_button.configure(bg=light_bg, fg=light_fg)
         self.tag_entry.configure(bg=light_bg, fg=light_fg)
         self.add_tag_button.configure(bg=light_bg, fg=light_fg)
-        self.pos_and_radio.configure(bg=light_bg, fg=light_fg)
-        self.pos_or_radio.configure(bg=light_bg, fg=light_fg)
-        self.neg_and_radio.configure(bg=light_bg, fg=light_fg)
-        self.neg_or_radio.configure(bg=light_bg, fg=light_fg)
         self.clear_filter_button.configure(bg=light_bg, fg=light_fg)
         self.tag_entry.configure(bg=light_bg, fg=light_fg)
         self.tag_add_dropdown.configure(bg=light_bg, fg=light_fg)
         self.add_tag_button.configure(bg=light_bg, fg=light_fg)
+        self.remove_tag_entry .configure(bg=light_bg, fg=light_fg)
+        self.remove_tag_dropdown .configure(bg=light_bg, fg=light_fg)
+        self.remove_tag_button .configure(bg=light_bg, fg=light_fg)
+        self.remove_tag_frame.configure(bg=light_bg)
 
         if self.selected_label:
             image_path = self.selected_label.image_path
