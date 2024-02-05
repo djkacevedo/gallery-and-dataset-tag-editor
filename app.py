@@ -9,6 +9,7 @@ import json
 import yaml
 import csv
 import subprocess
+import tkinter.font as font
 
 class ImageGalleryApp:
     color_mapping = {
@@ -547,6 +548,8 @@ class ImageGalleryApp:
         return []
 
     def display_tags(self, image_path, tag_freq):
+        pos_filter_tags = set(self.pos_filter_entry.get().split(','))
+        
         tags = self.tag_map.get(self.selected_label, [])
         self.clear_tags_frame()
 
@@ -564,9 +567,14 @@ class ImageGalleryApp:
             btn_fg = "white" if self.dark_mode_enabled.get() and tag_color == "black" else tag_color
             btn_bg = "gray25" if self.dark_mode_enabled.get() else "SystemButtonFace"
 
+            # Define a bold font
+            bold_font = font.Font(weight="bold", size=12)
+            regular_font = font.Font(size=10)
+            tag_font = bold_font if tag in pos_filter_tags else regular_font
+
             # Create a frame and label for each tag
             tag_frame = tk.Frame(self.tags_text, bg=btn_bg)
-            tag_label = tk.Label(tag_frame, text=f"{tag} ({freq})", fg=btn_fg, bg=btn_bg)
+            tag_label = tk.Label(tag_frame, text=f"{tag} ({freq})", fg=btn_fg, bg=btn_bg, font=tag_font)
             tag_label.pack(side="left", padx=2)
             tag_frame.pack(side="left")
 
@@ -681,14 +689,17 @@ class ImageGalleryApp:
         menu.add_command(label="Remove from Positive Filter", command=lambda: self.remove_tag_from_filter_and_apply(tag, self.pos_filter_entry))
         menu.add_command(label="Remove from Negative Filter", command=lambda: self.remove_tag_from_filter_and_apply(tag, self.neg_filter_entry))
         menu.add_separator()
-        menu.add_command(label="Remove Tag", command=lambda: self.remove_tag_from_tags_frame(self.selected_label.image_path, tag))
-        menu.add_command(label="Replace Underscores with Spaces", command=lambda: self.replace_underscores(self.selected_label.image_path, tag))
-        menu.add_separator()
-        menu.add_command(label="Copy to Clipboard", command=lambda: self.copy_to_clipboard(tag))
-        menu.add_command(label="Add to Remove Tag", command=lambda: self.add_to_remove_tag_entry(tag))
-        menu.add_separator()
         menu.add_command(label="Add to Positive Filter", command=lambda: self.add_to_filter_and_apply(tag, self.pos_filter_entry))
         menu.add_command(label="Add to Negative Filter", command=lambda: self.add_to_filter_and_apply(tag, self.neg_filter_entry))
+        menu.add_separator()
+        menu.add_command(label="Remove Tag From Image", command=lambda: self.remove_tag_from_tags_frame(self.selected_label.image_path, tag))
+        menu.add_command(label="Replace Underscores with Spaces", command=lambda: self.replace_underscores(self.selected_label.image_path, tag))
+        menu.add_separator()
+        menu.add_command(label="Add to Add Tag Box", command=lambda: self.add_to_add_tag_entry(tag))
+        menu.add_command(label="Add to Remove Tag Box", command=lambda: self.add_to_remove_tag_entry(tag))
+        menu.add_separator()
+        menu.add_command(label="Copy to Clipboard", command=lambda: self.copy_to_clipboard(tag))
+
 
         # Display the menu at the cursor's position
         menu.tk_popup(event.x_root, event.y_root)
@@ -706,6 +717,15 @@ class ImageGalleryApp:
             filter_entry.insert(0, new_filter)
         self.apply_filters()
         filter_entry.xview_moveto(1)  # Auto-scroll to the right
+
+    def add_to_add_tag_entry(self, tag):
+        current_text = self.tag_entry.get()
+        if current_text:
+            new_text = f"{current_text}, {tag}"
+        else:
+            new_text = tag
+        self.tag_entry.delete(0, tk.END)
+        self.tag_entry.insert(0, new_text)
 
     def add_to_remove_tag_entry(self, tag):
         current_text = self.remove_tag_entry.get()
@@ -815,10 +835,39 @@ class ImageGalleryApp:
         # Make filter labels clickable
         self.pos_filter_label.bind("<Button-1>", self.show_filter_edit_popup)
         self.neg_filter_label.bind("<Button-1>", self.show_filter_edit_popup)
+    
+        self.pos_filter_label.bind("<Button-3>", self.show_pos_filter_context_menu)
 
         # Underline filter labels
         self.pos_filter_label.config(font=('TkDefaultFont', 10, 'underline'))
         self.neg_filter_label.config(font=('TkDefaultFont', 10, 'underline'))
+
+    # Method to find common tags
+    def find_common_tags(self):
+        common_tags = set(self.tag_map[next(iter(self.tag_map))]) if self.tag_map else set()
+        for tags in self.tag_map.values():
+            common_tags.intersection_update(tags)
+        return common_tags
+
+    # Method to create and display the context menu for positive filter
+    def show_pos_filter_context_menu(self, event):
+        common_tags = self.find_common_tags()
+        context_menu = tk.Menu(self.root, tearoff=0)
+
+        if common_tags:
+            context_menu.add_command(label="Filter by Common Tags",
+                                    command=lambda: self.apply_common_tags_filter(common_tags))
+        else:
+            context_menu.add_command(label="No Common Tags", state="disabled")
+
+        context_menu.tk_popup(event.x_root, event.y_root)
+
+    # Method to apply common tags filter
+    def apply_common_tags_filter(self, common_tags):
+        self.pos_filter_entry.delete(0, tk.END)
+        self.pos_filter_entry.insert(0, ', '.join(common_tags))
+        self.pos_filter_option.set(0)  # Set to AND
+        self.apply_filters()
 
     def show_filter_edit_popup(self, event):
         # Get the current mouse position
