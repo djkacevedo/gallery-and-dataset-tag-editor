@@ -8,6 +8,7 @@ import threading
 import json
 import yaml
 import csv
+import subprocess
 
 class ImageGalleryApp:
     color_mapping = {
@@ -130,10 +131,30 @@ class ImageGalleryApp:
         self.root.bind("<Down>", lambda e: self.move_focus("down"))
         self.root.bind("<Control-MouseWheel>", self.ctrl_mouse_wheel)
         self.root.bind("<Tab>", self.handle_tab_press)
+        self.root.bind("<Return>", self.handle_return_press)
+        self.root.bind("<Delete>", self.handle_delete_press)
         self.progress_bar = ttk.Progressbar(self.grid_canvas, orient="horizontal", mode="determinate")
         self.progress_bar.pack(side="top", fill="x")
         self.progress_bar.pack_forget()
-    
+
+    def handle_delete_press(self, event):
+        focused_widget = self.root.focus_get()
+        # Check if the focused widget is not a text box
+        if not isinstance(focused_widget, (tk.Entry, tk.Text)):
+            if self.selected_label:
+                self.delete_image(self.selected_label)
+
+    def handle_return_press(self, event):
+        focused_widget = self.root.focus_get()
+
+        # Check which widget is focused and perform the relevant action
+        if focused_widget == self.pos_filter_entry or focused_widget == self.neg_filter_entry:
+            self.apply_filters()
+        elif focused_widget == self.tag_entry:
+            self.add_tag()
+        elif focused_widget == self.remove_tag_entry:
+            self.remove_tag()
+
     def setup_filter_and_tag_options(self):
         self.pos_filter_option = tk.IntVar(value=1)
         self.neg_filter_option = tk.IntVar(value=1)
@@ -153,6 +174,7 @@ class ImageGalleryApp:
             self.display_images(last_folder)
         if last_color_scheme in self.color_schemes:
             self.change_color_scheme(last_color_scheme)
+
     def initialize_color_schemes(self):
         self.color_schemes = {"None": None}  # Default option
         self.load_color_schemes()  # Load available color schemes
@@ -168,7 +190,7 @@ class ImageGalleryApp:
             # Update last opened folder in settings
             settings = self.load_settings()
             settings['last_opened_folder'] = folder_path
-            self.save_settings()
+            self.save_settings(settings)
 
     def show_progress_bar(self):
         self.progress_bar.pack(side="top", fill="x")
@@ -193,23 +215,34 @@ class ImageGalleryApp:
             # Update the tags display
             self.display_tags(image_path, self.count_tag_frequencies())
 
-
     def create_context_menu(self, label):
         context_menu = tk.Menu(self.root, tearoff=0)
+        context_menu.add_command(label="Clear Filters", command=lambda: self.clear_filters())
         context_menu.add_command(label="Delete Image", command=lambda: self.delete_image(label))
         context_menu.add_command(label="Sort Tags", command=lambda: self.sort_tags_selected())
         context_menu.add_command(label="Open Image", command=lambda: self.open_in_default_app(label.image_path))
         context_menu.add_command(label="Open Caption File", command=lambda: self.open_caption_file(label.image_path))
+        context_menu.add_command(label="Open Containing Folder", command=lambda: self.open_folder_in_default_app(label.image_path))
+
         return context_menu
 
     def delete_image(self, label_to_delete):
+        # Get current index of the label to delete
+        if not self.image_labels:
+            return
+
+        visible_labels = [label for label in self.image_labels if label.winfo_ismapped()]
+
+        if not visible_labels:
+            return
+
+        current_index = visible_labels.index(label_to_delete) if label_to_delete in visible_labels else -1
+
         # Delete the image and caption files
         image_path = label_to_delete.image_path
         caption_path = image_path.rsplit('.', 1)[0] + '.txt'
-
         if os.path.exists(image_path):
             os.remove(image_path)
-
         if os.path.exists(caption_path):
             os.remove(caption_path)
 
@@ -217,8 +250,13 @@ class ImageGalleryApp:
         label_to_delete.grid_forget()
         label_to_delete.destroy()
         self.image_labels.remove(label_to_delete)
-
         self.rearrange_labels()
+
+        # Select the next image
+        # self.select_next_image_after_deletion(current_index)
+        next_index = current_index + 1 if current_index < len(visible_labels) - 1 else current_index - 1
+        self.select_image(None, visible_labels[next_index])
+        self.apply_filters()
 
     def rearrange_labels(self):
         # Rearrange the remaining labels to fill in the gap
@@ -229,6 +267,10 @@ class ImageGalleryApp:
             if col >= 3:  # Assuming 3 columns, adjust as needed
                 col = 0
                 row += 1
+
+    def open_folder_in_default_app(self, path):
+        if os.path.exists(path):
+            os.startfile(os.path.dirname(path))
 
     def open_in_default_app(self, path):
         if os.path.exists(path):
@@ -441,6 +483,10 @@ class ImageGalleryApp:
             self.preview_image_label.config(image=large_img)
             self.preview_image_label.image = large_img
         
+            # Bind the context menu to the preview image
+            context_menu = self.create_context_menu(self.selected_label)
+            self.preview_image_label.bind("<Button-3>", lambda e: context_menu.tk_popup(e.x_root, e.y_root))
+
             # Update the tags display
             self.display_tags(image_path, self.count_tag_frequencies())
         else:
@@ -480,18 +526,6 @@ class ImageGalleryApp:
     def clear_tags_frame(self):
         self.tags_text.config(state='normal')  # Enable editing to clear
         self.tags_text.delete('1.0', 'end')  # Delete all contents
-
-    def count_tag_frequencies(self, folder_path):
-        tag_freq = {}
-        caption_files = [f for f in os.listdir(folder_path) if f.endswith('.txt')]
-        for file_name in caption_files:
-            with open(os.path.join(folder_path, file_name), 'r') as file:
-                tags = file.read().split(',')
-                for tag in tags:
-                    tag = tag.strip()
-                    if tag:
-                        tag_freq[tag] = tag_freq.get(tag, 0) + 1
-        return tag_freq
 
     def remove_tag_from_tags_frame(self, image_path, tag_to_remove):
         if self.selected_label in self.tag_map:
@@ -616,21 +650,62 @@ class ImageGalleryApp:
             for tag_label, tag in tags:
                 if tag_label.winfo_ismapped():  # Check if tag label still exists
                     tag_label.bind("<Button-3>", lambda e, t=tag: self.tag_right_click_menu(e, t))
+                    tag_label.bind("<Button-1>", lambda e, t=tag: self.add_tag_to_filter_and_apply(t))
+                    hover_color = "blue"  # Color to show on mouse hover
+
+                    # Add mouse-over and mouse-leave bindings
+                    tag_label.bind("<Enter>", lambda e, lbl=tag_label, t=tag: lbl.config(fg=hover_color))
+                    tag_label.bind("<Leave>", lambda e, lbl=tag_label, t=tag: lbl.config(fg=self.get_tag_original_color(t)))
+
+    def get_tag_original_color(self, tag):
+        # Determine the original color of the tag based on dark mode setting
+        original_color = self.tag_colors.get(tag, "black")
+        if self.dark_mode_enabled.get() and original_color == "black":
+            return "white"  # White color in dark mode for better visibility
+        return original_color
+
+    def add_tag_to_filter_and_apply(self, tag):
+        current_filter = self.pos_filter_entry.get()
+        if current_filter:
+            new_filter = f"{current_filter}, {tag}"
+        else:
+            new_filter = tag
+        self.pos_filter_entry.delete(0, tk.END)
+        self.pos_filter_entry.insert(0, new_filter)
+        self.pos_filter_entry.xview_moveto(1)  # Auto-scroll to the right
+        self.apply_filters()
 
     def tag_right_click_menu(self, event, tag):
         # Create a context menu for tag options
         menu = tk.Menu(self.root, tearoff=0)
+        menu.add_command(label="Remove from Positive Filter", command=lambda: self.remove_tag_from_filter_and_apply(tag, self.pos_filter_entry))
+        menu.add_command(label="Remove from Negative Filter", command=lambda: self.remove_tag_from_filter_and_apply(tag, self.neg_filter_entry))
+        menu.add_separator()
         menu.add_command(label="Remove Tag", command=lambda: self.remove_tag_from_tags_frame(self.selected_label.image_path, tag))
         menu.add_command(label="Replace Underscores with Spaces", command=lambda: self.replace_underscores(self.selected_label.image_path, tag))
         menu.add_separator()
         menu.add_command(label="Copy to Clipboard", command=lambda: self.copy_to_clipboard(tag))
         menu.add_command(label="Add to Remove Tag", command=lambda: self.add_to_remove_tag_entry(tag))
         menu.add_separator()
-        menu.add_command(label="Add to Positive Filter", command=lambda: self.add_to_filter(tag, self.pos_filter_entry))
-        menu.add_command(label="Add to Negative Filter", command=lambda: self.add_to_filter(tag, self.neg_filter_entry))
+        menu.add_command(label="Add to Positive Filter", command=lambda: self.add_to_filter_and_apply(tag, self.pos_filter_entry))
+        menu.add_command(label="Add to Negative Filter", command=lambda: self.add_to_filter_and_apply(tag, self.neg_filter_entry))
 
         # Display the menu at the cursor's position
         menu.tk_popup(event.x_root, event.y_root)
+
+    def remove_tag_from_filter_and_apply(self, tag, filter_entry):
+        # Get the current filter content
+        current_filter = filter_entry.get()
+        # Remove the tag from the filter
+        filter_tags = [t.strip() for t in current_filter.split(',') if t.strip()]
+        if tag in filter_tags:
+            filter_tags.remove(tag)
+            # Update the filter entry
+            new_filter = ', '.join(filter_tags)
+            filter_entry.delete(0, tk.END)
+            filter_entry.insert(0, new_filter)
+        self.apply_filters()
+        filter_entry.xview_moveto(1)  # Auto-scroll to the right
 
     def add_to_remove_tag_entry(self, tag):
         current_text = self.remove_tag_entry.get()
@@ -641,7 +716,7 @@ class ImageGalleryApp:
         self.remove_tag_entry.delete(0, tk.END)
         self.remove_tag_entry.insert(0, new_text)
 
-    def add_to_filter(self, tag, filter_entry):
+    def add_to_filter_and_apply(self, tag, filter_entry):
         current_filter = filter_entry.get()
         if current_filter:
             new_filter = f"{current_filter}, {tag}"
@@ -649,6 +724,7 @@ class ImageGalleryApp:
             new_filter = tag
         filter_entry.delete(0, tk.END)
         filter_entry.insert(0, new_filter)
+        self.apply_filters()
 
     def open_tag_menu(self, tag):
         # This function will be triggered when clicking on a tag
@@ -677,10 +753,10 @@ class ImageGalleryApp:
         self.pos_filter_entry = tk.Entry(self.filter_frame)
         self.pos_filter_entry.pack(side="left", fill="x", expand=True)
 
-        # Positive filter options (AND/OR)
-        pos_and_radio = tk.Radiobutton(self.filter_frame, text="AND", variable=self.pos_filter_option, value=0)
+        # Positive filter options (AND/OR) with command binding
+        pos_and_radio = tk.Radiobutton(self.filter_frame, text="AND", variable=self.pos_filter_option, value=0, command=self.apply_filters)
         pos_and_radio.pack(side="left")
-        pos_or_radio = tk.Radiobutton(self.filter_frame, text="OR", variable=self.pos_filter_option, value=1)
+        pos_or_radio = tk.Radiobutton(self.filter_frame, text="OR", variable=self.pos_filter_option, value=1, command=self.apply_filters)
         pos_or_radio.pack(side="left")
 
         # Negative filter
@@ -689,10 +765,10 @@ class ImageGalleryApp:
         self.neg_filter_entry = tk.Entry(self.filter_frame)
         self.neg_filter_entry.pack(side="left", fill="x", expand=True)
 
-        # Negative filter options (AND/OR)
-        neg_and_radio = tk.Radiobutton(self.filter_frame, text="AND", variable=self.neg_filter_option, value=0)
+        # Negative filter options (AND/OR) with command binding
+        neg_and_radio = tk.Radiobutton(self.filter_frame, text="AND", variable=self.neg_filter_option, value=0, command=self.apply_filters)
         neg_and_radio.pack(side="left")
-        neg_or_radio = tk.Radiobutton(self.filter_frame, text="OR", variable=self.neg_filter_option, value=1)
+        neg_or_radio = tk.Radiobutton(self.filter_frame, text="OR", variable=self.neg_filter_option, value=1, command=self.apply_filters)
         neg_or_radio.pack(side="left")
 
         # Filter button
@@ -704,7 +780,9 @@ class ImageGalleryApp:
         self.clear_filter_button.pack(side="left", padx=5)
 
         # Checkbox for hiding non-filtered tags
-        hide_tags_checkbox = tk.Checkbutton(self.filter_frame, text="Hide non-filtered tags", variable=self.hide_non_filtered_tags)
+        hide_tags_checkbox = tk.Checkbutton(self.filter_frame, text="Hide non-filtered tags", 
+                                            variable=self.hide_non_filtered_tags, 
+                                            command=self.update_tag_visibility)
         hide_tags_checkbox.pack(side="left")
 
         # Add Remove Tag Frame
@@ -724,6 +802,37 @@ class ImageGalleryApp:
         # Remove tag button
         self.remove_tag_button = tk.Button(self.remove_tag_frame, text="Remove Tag", command=self.remove_tag)
         self.remove_tag_button.pack(side="left", padx=5)
+
+        # Make filter labels clickable
+        self.pos_filter_label.bind("<Button-1>", lambda e: self.edit_filter_in_popup(self.pos_filter_entry))
+        self.neg_filter_label.bind("<Button-1>", lambda e: self.edit_filter_in_popup(self.neg_filter_entry))
+        
+        # Underline filter labels
+        self.pos_filter_label.config(font=('TkDefaultFont', 10, 'underline'))
+        self.neg_filter_label.config(font=('TkDefaultFont', 10, 'underline'))
+
+    def edit_filter_in_popup(self, filter_entry):
+        popup = tk.Toplevel(self.root)
+        popup.title("Edit Filter")
+        popup.geometry("400x200")  # Adjust size as needed
+
+        large_text = tk.Text(popup, width=40, height=10)  # A 2D text box
+        large_text.insert("1.0", filter_entry.get())
+        large_text.pack(pady=20)
+
+        save_button = tk.Button(popup, text="Save", command=lambda: self.save_filter_from_popup(large_text.get("1.0", "end-1c"), filter_entry, popup))
+        save_button.pack()
+
+    def save_filter_from_popup(self, new_filter_text, filter_entry, popup_window):
+        filter_entry.delete(0, tk.END)
+        filter_entry.insert(0, new_filter_text.strip())
+        popup_window.destroy()
+        self.apply_filters()
+
+    def update_tag_visibility(self):
+        if self.selected_label:
+            image_path = self.selected_label.image_path
+            self.display_tags(image_path, self.count_tag_frequencies())
 
     def remove_tag(self):
         tags_to_remove = [tag.strip() for tag in self.remove_tag_entry.get().split(',') if tag.strip()]
@@ -879,12 +988,7 @@ class ImageGalleryApp:
                 if label == self.selected_label:
                     self.display_tags(image_path, self.count_tag_frequencies())
 
-    def save_settings(self):
-        settings = {
-            'last_opened_folder': self.load_settings().get('last_opened_folder'),
-            'last_color_scheme': self.load_settings().get('last_color_scheme', 'None'),
-            'dark_mode_enabled': self.dark_mode_enabled.get()
-        }
+    def save_settings(self, settings):
         with open('settings/app_settings.json', 'w') as f:
             json.dump(settings, f)
 
@@ -922,7 +1026,7 @@ class ImageGalleryApp:
         # Update last color scheme in settings
         settings = self.load_settings()
         settings['last_color_scheme'] = scheme_name
-        self.save_settings()
+        self.save_settings(settings)
 
         if self.selected_label:
             image_path = self.selected_label.image_path
@@ -969,7 +1073,9 @@ class ImageGalleryApp:
             self.apply_dark_mode()
         else:
             self.apply_light_mode()
-        self.save_settings()
+        settings = self.load_settings()
+        settings['dark_mode'] = self.dark_mode_enabled.get()
+        self.save_settings(settings)
         if self.selected_label:
             image_path = self.selected_label.image_path
             self.display_tags(image_path, self.count_tag_frequencies())
