@@ -13,22 +13,17 @@ To install and run the Image Gallery Application, follow these steps:
      ```
    - Alternatively, download the ZIP file and extract it.
 
-2. **Install dependencies**:
+2. **Prepare the environment**:
    - Navigate to the project directory in your terminal or command prompt.
-   - Install the required Python packages using:
-     ```
-     pip install -r requirements.txt
-     ```
+   - Run the `start.bat` file to set up the Python virtual environment and install the required dependencies. The `start.bat` script will automatically create a virtual environment, activate it, install dependencies from `requirements.txt`, and start the application.
 
 ## Usage
 
 To use the Image Gallery Application, follow these instructions:
 
 1. **Starting the application**:
-   - Run the script using Python:
-     ```
-     python app.py
-     ```
+   - Double-click the `start.bat` file in the project directory. This will set up the environment, install necessary dependencies, and launch the application.
+   - Alternatively, you can manually activate the virtual environment and run `python app.py` in your terminal or command prompt.
 
 2. **Loading images**:
    - Use the 'Open' option in the 'File' menu to load images from a folder.
