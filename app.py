@@ -35,138 +35,127 @@ class ImageGalleryApp:
         self.root = root
         self.root.title("Image Gallery")
 
-        # Create a menu bar
+        self.create_menu_bar()
+        self.initialize_variables()
+        self.setup_main_frames()
+        self.setup_grid_canvas()
+        self.setup_right_frame()
+        self.setup_key_bindings()
+        self.setup_filter_and_tag_options()
+        self.initialize_color_schemes()
+
+        settings = self.load_settings()
+        self.apply_initial_settings(settings)
+
+    def create_menu_bar(self):
         self.menu_bar = tk.Menu(self.root)
         self.root.config(menu=self.menu_bar)
-    
-        # Create a 'File' menu
+        self.create_file_menu()
+        self.create_tools_menu()
+
+    def create_file_menu(self):
         self.file_menu = tk.Menu(self.menu_bar, tearoff=0)
         self.file_menu.add_command(label="Open", command=self.load_folder)
         self.file_menu.add_separator()
         self.file_menu.add_command(label="Quit", command=self.root.quit)
         self.menu_bar.add_cascade(label="File", menu=self.file_menu)
 
-        # Create a 'Tools' menu
+    def create_tools_menu(self):
         self.tools_menu = tk.Menu(self.menu_bar, tearoff=0)
+        self.add_tools_menu_commands()
+        self.menu_bar.add_cascade(label="Tools", menu=self.tools_menu)
+    
+    def add_tools_menu_commands(self):
         self.tools_menu.add_command(label="Remove Duplicate tags in Visible Images", command=self.remove_duplicates_visible)
         self.tools_menu.add_command(label="Remove Duplicate tags All Images", command=self.remove_duplicates_all)
         self.tools_menu.add_command(label="Remove Duplicate tags Selected Image", command=self.remove_duplicate_selected)
-        self.menu_bar.add_cascade(label="Tools", menu=self.tools_menu)
-
         self.tools_menu.add_command(label="Sort Tags for Selected Image", command=self.sort_tags_selected)
         self.tools_menu.add_command(label="Sort Tags for Visible Images", command=self.sort_tags_visible)
         self.tools_menu.add_command(label="Sort Tags for All Images", command=self.sort_tags_all)
-
+    
+    def initialize_variables(self):
         self.image_labels = []
         self.tag_freq = {}
         self.tag_colors = {}
-
-        # Color scheme submenu
-        self.color_scheme_menu = tk.Menu(self.file_menu, tearoff=0)
-        self.file_menu.add_cascade(label="Color Scheme", menu=self.color_scheme_menu)
-        self.load_color_schemes()  # Load available color schemes
-        for scheme_name, _ in self.color_schemes.items():
-            self.color_scheme_menu.add_command(label=scheme_name, command=lambda name=scheme_name: self.change_color_scheme(name))
-
-
-        # Main frame for grid and preview
+        self.selected_label = None
+        self.selection_lock = threading.Lock()
+        self.selection_debounce = None
+        self.tag_map = {}
+        self.color_schemes = {}  # Initialize color_schemes
+    
+    def setup_main_frames(self):
         self.main_frame = tk.Frame(self.root)
         self.main_frame.pack(fill="both", expand=True)
-
-        # Scrollable grid setup
+    
+    def setup_grid_canvas(self):
         self.grid_canvas = Canvas(self.main_frame, borderwidth=0, highlightthickness=0)
         self.scrollbar = tk.Scrollbar(self.main_frame, orient="vertical", command=self.grid_canvas.yview)
         self.scrollable_frame = Frame(self.grid_canvas, borderwidth=0)
-
-        # Set a fixed width for the grid_canvas, adjust '340' as needed
         self.grid_canvas.config(width=300)
-        self.grid_canvas.pack_propagate(False)  # Prevents the frame from resizing
-
+        self.grid_canvas.pack_propagate(False)
         self.scrollable_frame.config(width=300)
-        self.scrollable_frame.pack_propagate(False)  # Prevents the frame from resizing
-
-        # Update the <Configure> event binding for the scrollable_frame
-        self.scrollable_frame.bind(
-            "<Configure>",
-            lambda e: self.grid_canvas.configure(
-                scrollregion=self.grid_canvas.bbox("all")
-            )
-        )
-
+        self.scrollable_frame.pack_propagate(False)
+        self.scrollable_frame.bind("<Configure>", lambda e: self.grid_canvas.configure(scrollregion=self.grid_canvas.bbox("all")))
         self.grid_canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
         self.grid_canvas.configure(yscrollcommand=self.scrollbar.set)
-
         self.grid_canvas.bind_all("<MouseWheel>", self._on_mousewheel)
-
         self.grid_canvas.pack(side="left", fill="both", expand=True)
         self.scrollbar.pack(side="left", fill="y")
-
-        # Right frame for image preview and tags
+    
+    def setup_right_frame(self):
         self.right_frame = tk.Frame(self.main_frame)
         self.right_frame.pack(side="right", fill="both", expand=True)
-
-        # Frame for fixed-size image preview
+        self.setup_preview_frame()
+        self.setup_tags_frame()
+    
+    def setup_preview_frame(self):
         self.preview_frame = tk.Frame(self.right_frame, width=512, height=512)
-        self.preview_frame.pack_propagate(False)  # Prevents the frame from resizing
+        self.preview_frame.pack_propagate(False)
         self.preview_frame.pack(side="top", fill="both", expand=False)
         self.preview_image_label = tk.Label(self.preview_frame)
         self.preview_image_label.pack(fill="both", expand=True)
-        
-        # Frame for displaying tags
+    
+    def setup_tags_frame(self):
         self.tags_frame = tk.Frame(self.right_frame)
         self.tags_frame.pack(side="bottom", fill="both", expand=True)
-        
-        # Create a Text widget within the tags frame
         self.tags_text = tk.Text(self.tags_frame, wrap='word', height=3, borderwidth=0, cursor="", bg='SystemButtonFace')
         self.tags_text.pack(side="left", fill="both", expand=True)
-        
-        # Disable text selection
         self.tags_text.bind("<1>", lambda e: "break")
         self.tags_text.bind("<B1-Motion>", lambda e: "break")
-
-        self.selected_label = None
-
-        # Key bindings for arrow key navigation
+    
+    def setup_key_bindings(self):
         self.root.bind("<Left>", lambda e: self.move_focus("left"))
         self.root.bind("<Right>", lambda e: self.move_focus("right"))
         self.root.bind("<Up>", lambda e: self.move_focus("up"))
         self.root.bind("<Down>", lambda e: self.move_focus("down"))
         self.root.bind("<Control-MouseWheel>", self.ctrl_mouse_wheel)
         self.root.bind("<Tab>", self.handle_tab_press)
-
         self.progress_bar = ttk.Progressbar(self.grid_canvas, orient="horizontal", mode="determinate")
         self.progress_bar.pack(side="top", fill="x")
-        self.progress_bar.pack_forget()  # Hide the progress bar initially
-
-        self.selection_lock = threading.Lock()
-        self.selection_debounce = None
-
-        self.tag_map = {}  # Initialize the tag map
-
-        # Filter options variables
-        self.pos_filter_option = tk.IntVar(value=1)  # 1 for OR, 0 for AND
-        self.neg_filter_option = tk.IntVar(value=1)  # 1 for OR, 0 for AND
-        self.hide_non_filtered_tags = tk.BooleanVar(value=False)  # Checkbox variable
-
-        self.add_filter_boxes()  # Call this to add filter boxes
+        self.progress_bar.pack_forget()
+    
+    def setup_filter_and_tag_options(self):
+        self.pos_filter_option = tk.IntVar(value=1)
+        self.neg_filter_option = tk.IntVar(value=1)
+        self.hide_non_filtered_tags = tk.BooleanVar(value=False)
+        self.add_filter_boxes()
         self.add_tag_entry()
-
-        # Dark mode variable and menu item
         self.dark_mode_enabled = tk.BooleanVar()
         self.file_menu.add_checkbutton(label="Dark Mode", onvalue=True, offvalue=False, variable=self.dark_mode_enabled, command=self.toggle_dark_mode)
-
-        settings = self.load_settings()
+    
+    def apply_initial_settings(self, settings):
         self.dark_mode_enabled.set(settings.get('dark_mode_enabled', False))
         last_folder = settings.get('last_opened_folder')
         last_color_scheme = settings.get('last_color_scheme', 'None')
         if self.dark_mode_enabled.get():
             self.apply_dark_mode()
-
         if last_folder and os.path.isdir(last_folder):
             self.display_images(last_folder)
-
         if last_color_scheme in self.color_schemes:
             self.change_color_scheme(last_color_scheme)
+    def initialize_color_schemes(self):
+        self.color_schemes = {"None": None}  # Default option
+        self.load_color_schemes()  # Load available color schemes
 
     def clear_text_focus(self):
         self.root.focus_set()
@@ -504,7 +493,7 @@ class ImageGalleryApp:
                         tag_freq[tag] = tag_freq.get(tag, 0) + 1
         return tag_freq
 
-    def remove_tag(self, image_path, tag_to_remove):
+    def remove_tag_from_tags_frame(self, image_path, tag_to_remove):
         if self.selected_label in self.tag_map:
             tags = self.tag_map[self.selected_label]
             tags = [tag for tag in tags if tag != tag_to_remove]
@@ -631,7 +620,7 @@ class ImageGalleryApp:
     def tag_right_click_menu(self, event, tag):
         # Create a context menu for tag options
         menu = tk.Menu(self.root, tearoff=0)
-        menu.add_command(label="Remove Tag", command=lambda: self.remove_tag(self.selected_label.image_path, tag))
+        menu.add_command(label="Remove Tag", command=lambda: self.remove_tag_from_tags_frame(self.selected_label.image_path, tag))
         menu.add_command(label="Replace Underscores with Spaces", command=lambda: self.replace_underscores(self.selected_label.image_path, tag))
         menu.add_separator()
         menu.add_command(label="Copy to Clipboard", command=lambda: self.copy_to_clipboard(tag))
