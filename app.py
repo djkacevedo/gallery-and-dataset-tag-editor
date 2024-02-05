@@ -159,9 +159,9 @@ class ImageGalleryApp:
         self.pos_filter_option = tk.IntVar(value=1)
         self.neg_filter_option = tk.IntVar(value=1)
         self.hide_non_filtered_tags = tk.BooleanVar(value=False)
+        self.dark_mode_enabled = tk.BooleanVar()
         self.add_filter_boxes()
         self.add_tag_entry()
-        self.dark_mode_enabled = tk.BooleanVar()
         self.file_menu.add_checkbutton(label="Dark Mode", onvalue=True, offvalue=False, variable=self.dark_mode_enabled, command=self.toggle_dark_mode)
     
     def apply_initial_settings(self, settings):
@@ -771,6 +771,15 @@ class ImageGalleryApp:
         neg_or_radio = tk.Radiobutton(self.filter_frame, text="OR", variable=self.neg_filter_option, value=1, command=self.apply_filters)
         neg_or_radio.pack(side="left")
 
+        # Add mouse-over and mouse-leave bindings for the filter labels
+        hover_color = "blue"  # Color to show on mouse hover
+
+        self.pos_filter_label.bind("<Enter>", lambda e: self.pos_filter_label.config(fg=hover_color))
+        self.pos_filter_label.bind("<Leave>", lambda e: self.pos_filter_label.config(fg=self.get_filter_label_color()))
+
+        self.neg_filter_label.bind("<Enter>", lambda e: self.neg_filter_label.config(fg=hover_color))
+        self.neg_filter_label.bind("<Leave>", lambda e: self.neg_filter_label.config(fg=self.get_filter_label_color()))
+
         # Filter button
         self.filter_button = tk.Button(self.filter_frame, text="Apply Filter", command=self.apply_filters)
         self.filter_button.pack(side="left", padx=5)
@@ -804,16 +813,57 @@ class ImageGalleryApp:
         self.remove_tag_button.pack(side="left", padx=5)
 
         # Make filter labels clickable
-        self.pos_filter_label.bind("<Button-1>", lambda e: self.edit_filter_in_popup(self.pos_filter_entry))
-        self.neg_filter_label.bind("<Button-1>", lambda e: self.edit_filter_in_popup(self.neg_filter_entry))
-        
+        self.pos_filter_label.bind("<Button-1>", self.show_filter_edit_popup)
+        self.neg_filter_label.bind("<Button-1>", self.show_filter_edit_popup)
+
         # Underline filter labels
         self.pos_filter_label.config(font=('TkDefaultFont', 10, 'underline'))
         self.neg_filter_label.config(font=('TkDefaultFont', 10, 'underline'))
 
-    def edit_filter_in_popup(self, filter_entry):
+    def show_filter_edit_popup(self, event):
+        # Get the current mouse position
+        x, y = self.root.winfo_pointerxy()
+
+        # Determine which filter label was clicked
+        filter_entry = self.pos_filter_entry if event.widget == self.pos_filter_label else self.neg_filter_entry
+
+        # Create a top-level window for editing
+        edit_popup = tk.Toplevel(self.root)
+        edit_popup.wm_title("Edit Filter")
+        edit_popup.geometry(f"+{x+10}+{y+10}")  # Place the window near the mouse
+
+        # Create a text widget in the popup window
+        edit_text = tk.Text(edit_popup, width=50, height=10)  # Adjust width and height as needed
+        edit_text.insert('1.0', filter_entry.get())
+        edit_text.pack()
+
+        # Set focus to the text widget
+        edit_text.focus_set()
+
+        # Function to call when Apply is clicked or Enter is pressed
+        def apply_changes():
+            self.apply_filter_edit(filter_entry, edit_text.get('1.0', 'end-1c'), edit_popup)
+
+        # Button to apply changes
+        apply_button = tk.Button(edit_popup, text="Apply", command=apply_changes)
+        apply_button.pack()
+
+        # Bind the Enter key to the apply_changes function
+        edit_popup.bind('<Return>', lambda e: apply_changes())
+
+    def apply_filter_edit(self, filter_entry, new_value, popup_window):
+        filter_entry.delete(0, tk.END)
+        filter_entry.insert(0, new_value)
+        popup_window.destroy()
+        self.apply_filters()
+
+    def get_filter_label_color(self):
+        # Determine the label color based on dark mode setting
+        return "white" if self.dark_mode_enabled.get() else "black"
+
+    def edit_filter_in_popup(self, filter_entry, filter_name):
         popup = tk.Toplevel(self.root)
-        popup.title("Edit Filter")
+        popup.title(filter_name)
         popup.geometry("400x200")  # Adjust size as needed
 
         large_text = tk.Text(popup, width=40, height=10)  # A 2D text box
