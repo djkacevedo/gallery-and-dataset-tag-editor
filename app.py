@@ -288,7 +288,7 @@ class ImageGalleryApp:
         for widget in self.scrollable_frame.winfo_children():
             widget.destroy()
 
-        images = [f for f in os.listdir(folder_path) if f.endswith(('.png', '.jpg', '.jpeg'))]
+        images = self.gather_images(folder_path)
         total_images = len(images)
         
         def update_progress(value):
@@ -330,6 +330,14 @@ class ImageGalleryApp:
 
         self.scrollable_frame.after(0, self.hide_progress_bar)
     
+    def gather_images(self, folder_path):
+        all_images = []
+        for root, dirs, files in os.walk(folder_path):
+            for file in files:
+                if file.endswith(('.png', '.jpg', '.jpeg')):
+                    all_images.append(os.path.join(root, file))
+        return all_images
+
     def load_image(self, folder_path, image_file, row, col, current_index, total_images):
         image_path = os.path.join(folder_path, image_file)
         img = Image.open(image_path)
