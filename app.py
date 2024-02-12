@@ -65,8 +65,42 @@ class ImageGalleryApp:
     def create_tools_menu(self):
         self.tools_menu = tk.Menu(self.menu_bar, tearoff=0)
         self.add_tools_menu_commands()
+        
+        # Adding remove by color submenu
+        self.remove_by_color_menu = tk.Menu(self.tools_menu, tearoff=0)
+        self.tools_menu.add_cascade(label="Remove by Color", menu=self.remove_by_color_menu)
+        self.update_remove_by_color_menu()
+        
         self.menu_bar.add_cascade(label="Tools", menu=self.tools_menu)
     
+    def update_remove_by_color_menu(self):
+        # Clear the current menu items
+        self.remove_by_color_menu.delete(0, tk.END)
+        
+        # Get the current color scheme from self.color_mapping
+        scheme = 'danbooru'  # Adjust based on your application's current scheme
+        for group_number, colors in self.color_mapping[scheme].items():
+            color_name = colors[0]  # Assuming the first entry is the color name
+            self.remove_by_color_menu.add_command(label=f"Remove {color_name}", command=lambda c=color_name: self.remove_tags_by_color(c))
+
+    def remove_tags_by_color(self, color_name):
+        # Iterate through all image labels
+        for label in self.image_labels:
+            if label in self.tag_map:
+                # Filter out tags that do not match the color
+                tags_to_keep = [tag for tag in self.tag_map[label] if self.tag_colors.get(tag, "black") != color_name]
+                self.tag_map[label] = tags_to_keep
+                
+                # Update the tags file for the image
+                image_path = label.image_path
+                caption_path = image_path.rsplit('.', 1)[0] + '.txt'
+                with open(caption_path, 'w') as file:
+                    file.write(', '.join(tags_to_keep))
+                
+                # Update the tags display if the selected image's tags were changed
+                if label == self.selected_label:
+                    self.display_tags(image_path, self.count_tag_frequencies())
+
     def add_tools_menu_commands(self):
         self.tools_menu.add_command(label="Remove Duplicate tags in Visible Images", command=self.remove_duplicates_visible)
         self.tools_menu.add_command(label="Remove Duplicate tags All Images", command=self.remove_duplicates_all)
