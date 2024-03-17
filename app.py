@@ -209,13 +209,9 @@ class ImageGalleryApp:
     
     def apply_initial_settings(self, settings):
         self.dark_mode_enabled.set(settings.get('dark_mode_enabled', False))
-        last_folder = settings.get('last_opened_folder')
-        last_folder = None
         last_color_scheme = settings.get('last_color_scheme', 'None')
         if self.dark_mode_enabled.get():
             self.apply_dark_mode()
-        if last_folder and os.path.isdir(last_folder):
-            self.display_images(last_folder)
         if last_color_scheme in self.color_schemes:
             self.change_color_scheme(last_color_scheme)
 
@@ -233,7 +229,6 @@ class ImageGalleryApp:
             self.tag_map = {}  # Reset the tag map for the new folder
             # Update last opened folder in settings
             settings = self.load_settings()
-            settings['last_opened_folder'] = folder_path
             self.save_settings(settings)
 
     def show_progress_bar(self):
