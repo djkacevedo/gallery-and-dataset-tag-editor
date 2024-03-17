@@ -1,3 +1,3 @@
-settings\app_settings.json
+settings/app_settings.json
 venv/*
 __pycache__/*
