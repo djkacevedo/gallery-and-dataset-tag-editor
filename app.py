@@ -33,6 +33,14 @@ class ImageGalleryApp:
             "8": ["seagreen", "darkseagreen"]
         }
     }
+    color_classes = {
+        "red": "bad_tag",
+        "lightblue": "general",
+        "indianred": "artist",
+        "violet": "copyright",
+        "lightgreen": "character",
+        "orange": "meta"
+    }
     def __init__(self, root):
         self.root = root
         self.root.title("Image Gallery")
@@ -742,10 +750,46 @@ class ImageGalleryApp:
         menu.add_command(label="Add to Remove Tag Box", command=lambda: self.add_to_remove_tag_entry(tag))
         menu.add_separator()
         menu.add_command(label="Copy to Clipboard", command=lambda: self.copy_to_clipboard(tag))
+        menu.add_separator()
 
+        # Submenu for Add to Color
+        color_menu = tk.Menu(menu, tearoff=0)
+        for key, colors in self.color_mapping['danbooru'].items():
+            # The color name is a combination of colors for visualization
+            color_name = f"{self.color_classes[colors[0]]}"
+            # The submenu will call the stubbed method with the tag and key
+            color_menu.add_command(label=color_name, command=lambda key=key: self.add_tag_to_color(tag, key))
+        menu.add_cascade(label="Add Tag to Type", menu=color_menu)
 
         # Display the menu at the cursor's position
         menu.tk_popup(event.x_root, event.y_root)
+
+    def add_tag_to_color(self, tag, color_key):
+        # Convert spaces to underscores for the tag as it's the format used in the CSV
+        csv_tag = tag.replace(' ', '_')
+
+        # Determine the color scheme based on the CSV file name; this might need adjustment to fit your application's context
+        scheme = 'danbooru' if 'danbooru' in self.tags_csv_path else 'e621'
+        # Retrieve the actual color using the provided key and scheme
+        color = self.color_mapping[scheme].get(color_key, ["black"])[0]
+
+        # The CSV entry format: tag, color key, some unique identifier (optional), empty field for alt tags
+        csv_entry = f"{csv_tag},{color_key},111,"
+
+        # Append the new entry to the CSV file
+        try:
+            with open(self.tags_csv_path, 'a', newline='', encoding='utf-8') as csvfile:
+                csvfile.write(f"{csv_entry}\n")
+
+            # After adding to the file, update the tag_colors dictionary as well.
+            normalized_tag = tag.replace('_', ' ')  # Normalize the tag for the dictionary
+            self.tag_colors[normalized_tag] = color  # Update the tag_colors dictionary
+
+            self.display_tags(self.selected_label.image_path, self.count_tag_frequencies())
+        except FileNotFoundError:
+            print(f"File '{self.tags_csv_path}' not found.")
+        except Exception as e:
+            print(f"Error updating file '{self.tags_csv_path}': {e}")
 
     def remove_tag_from_filter_and_apply(self, tag, filter_entry):
         # Get the current filter content
@@ -1162,6 +1206,7 @@ class ImageGalleryApp:
         selected_scheme = self.color_schemes[scheme_name]
         if selected_scheme:
             self.load_tag_colors(selected_scheme)
+            self.tags_csv_path = selected_scheme
         else:
             self.tag_colors = {}  # Reset to no color coding
 
