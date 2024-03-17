@@ -769,18 +769,38 @@ class ImageGalleryApp:
         color = self.color_mapping[scheme].get(color_key, ["black"])[0]
 
         # The CSV entry format: tag, color key, some unique identifier (optional), empty field for alt tags
-        csv_entry = f"{csv_tag},{color_key},111,"
+        new_csv_entry = f"{csv_tag},{color_key},111,"
 
-        # Append the new entry to the CSV file
+        # Read the entire CSV, and modify the entry if the tag exists
+        updated = False
         try:
-            with open(self.tags_csv_path, 'a', newline='', encoding='utf-8') as csvfile:
-                csvfile.write(f"{csv_entry}\n")
+            rows = []
+            with open(self.tags_csv_path, 'r', newline='', encoding='utf-8') as csvfile:
+                reader = csv.reader(csvfile)
+                for row in reader:
+                    # If the tag already exists in the file, update its color key
+                    if row[0] == csv_tag:
+                        rows.append(new_csv_entry.split(','))
+                        updated = True
+                    else:
+                        rows.append(row)
 
-            # After adding to the file, update the tag_colors dictionary as well.
+            # If the tag was not found and updated, append it to the list
+            if not updated:
+                rows.append(new_csv_entry.split(','))
+
+            # Write the modified or appended list back to the CSV
+            with open(self.tags_csv_path, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerows(rows)
+
+            # Update the tag_colors dictionary
             normalized_tag = tag.replace('_', ' ')  # Normalize the tag for the dictionary
             self.tag_colors[normalized_tag] = color  # Update the tag_colors dictionary
 
+            # Refresh the tags display, if necessary
             self.display_tags(self.selected_label.image_path, self.count_tag_frequencies())
+
         except FileNotFoundError:
             print(f"File '{self.tags_csv_path}' not found.")
         except Exception as e:
