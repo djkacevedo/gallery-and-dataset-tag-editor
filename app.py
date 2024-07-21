@@ -116,6 +116,11 @@ class ImageGalleryApp:
         self.tools_menu.add_command(label="Sort Tags for Selected Image", command=self.sort_tags_selected)
         self.tools_menu.add_command(label="Sort Tags for Visible Images", command=self.sort_tags_visible)
         self.tools_menu.add_command(label="Sort Tags for All Images", command=self.sort_tags_all)
+        
+        # Add commands for converting tags to lowercase
+        self.tools_menu.add_command(label="Convert Tags to Lowercase in Selected Image", command=self.convert_tags_to_lowercase_selected)
+        self.tools_menu.add_command(label="Convert Tags to Lowercase in Visible Images", command=self.convert_tags_to_lowercase_visible)
+        self.tools_menu.add_command(label="Convert Tags to Lowercase in All Images", command=self.convert_tags_to_lowercase_all)
     
     def initialize_variables(self):
         self.image_labels = []
@@ -1397,6 +1402,36 @@ class ImageGalleryApp:
             if label == self.selected_label:
                 # Update the tags display if the selected image's tags were changed
                 self.display_tags(image_path, self.count_tag_frequencies())
+
+    def convert_tags_to_lowercase_selected(self):
+        if self.selected_label:
+            self.convert_tags_to_lowercase(self.selected_label)
+
+    def convert_tags_to_lowercase_visible(self):
+        for label in self.image_labels:
+            if label.winfo_ismapped():
+                self.convert_tags_to_lowercase(label)
+
+    def convert_tags_to_lowercase_all(self):
+        for label in self.image_labels:
+            self.convert_tags_to_lowercase(label)
+
+    def convert_tags_to_lowercase(self, label):
+        image_path = label.image_path
+        tags = self.tag_map.get(label, [])
+        lowercase_tags = [tag.lower() for tag in tags]
+
+        self.tag_map[label] = lowercase_tags
+
+        # Update the tags file for the image
+        caption_path = image_path.rsplit('.', 1)[0] + '.txt'
+        with open(caption_path, 'w') as file:
+            file.write(', '.join(lowercase_tags))
+
+        if label == self.selected_label:
+            # Update the tags display if the selected image's tags were changed
+            self.display_tags(image_path, self.count_tag_frequencies())
+
 
 if __name__ == "__main__":
     root = tk.Tk()
