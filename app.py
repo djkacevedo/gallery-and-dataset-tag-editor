@@ -79,17 +79,127 @@ class ImageGalleryApp:
         self.tools_menu.add_cascade(label="Remove by Color", menu=self.remove_by_color_menu)
         self.update_remove_by_color_menu()
         
+        # Adding filter by color submenu
+        self.filter_by_color_menu = tk.Menu(self.tools_menu, tearoff=0)
+        self.tools_menu.add_cascade(label="Filter by Color", menu=self.filter_by_color_menu)
+        self.update_filter_by_color_menu()
+
         self.menu_bar.add_cascade(label="Tools", menu=self.tools_menu)
     
+    def update_filter_by_color_menu(self):
+        # Clear the current menu items
+        self.filter_by_color_menu.delete(0, tk.END)
+        
+        # Add a stub entry for filtering by "No Color"
+        self.filter_by_color_menu.add_command(label="Filter by No Color", command=self.filter_by_no_color)
+
+        # Get the current color scheme from self.color_mapping
+        scheme = 'danbooru'  # Adjust based on your application's current scheme
+        for group_number, colors in self.color_mapping[scheme].items():
+            color_name = colors[0]  # Assuming the first entry is the color name
+            self.filter_by_color_menu.add_command(label=f"Filter by {color_name}", command=lambda c=color_name: self.filter_images_by_color(c))
+
+    def filter_images_by_color(self, color_name):
+        visible_labels = []  # List to keep track of labels that will be visible
+        selected_visible = False  # Flag to check if selected label is visible
+
+        for label in self.image_labels:
+            image_tags = self.tag_map[label]
+
+            # Check if any tag in the image has the selected color
+            show_image = any(self.tag_colors.get(tag, "black") == color_name for tag in image_tags)
+
+            if show_image:
+                visible_labels.append(label)
+                if label == self.selected_label:
+                    selected_visible = True
+
+        # Rearrange visible labels in the grid
+        row, col = 0, 0
+        for label in visible_labels:
+            label.grid(row=row, column=col, padx=2, pady=2)
+            col += 1
+            if col >= 3:  # Assuming 3 columns, adjust as needed
+                col = 0
+                row += 1
+
+        # Hide other labels
+        for label in set(self.image_labels) - set(visible_labels):
+            label.grid_remove()
+
+        # Scroll to keep the selected image in view or select the first visible image
+        if selected_visible:
+            self.scroll_to_label(self.selected_label)
+        elif visible_labels:
+            self.select_image(None, visible_labels[0])
+            self.scroll_to_label(visible_labels[0])
+
+    def filter_by_no_color(self):
+        visible_labels = []  # List to keep track of labels that will be visible
+        selected_visible = False  # Flag to check if selected label is visible
+
+        for label in self.image_labels:
+            image_tags = self.tag_map[label]
+
+            ignorable_tags = ["score_9","source_anime","source_explicit","source_questionable","source_questionable","source_safe","source_general","source_sensitive"]
+            # Check if any tag in the image is not included in tag_colors
+            show_image = any(tag not in self.tag_colors and tag not in ignorable_tags for tag in image_tags)
+
+            if show_image:
+                visible_labels.append(label)
+                if label == self.selected_label:
+                    selected_visible = True
+
+        # Rearrange visible labels in the grid
+        row, col = 0, 0
+        for label in visible_labels:
+            label.grid(row=row, column=col, padx=2, pady=2)
+            col += 1
+            if col >= 3:  # Assuming 3 columns, adjust as needed
+                col = 0
+                row += 1
+
+        # Hide other labels
+        for label in set(self.image_labels) - set(visible_labels):
+            label.grid_remove()
+
+        # Scroll to keep the selected image in view or select the first visible image
+        if selected_visible:
+            self.scroll_to_label(self.selected_label)
+        elif visible_labels:
+            self.select_image(None, visible_labels[0])
+            self.scroll_to_label(visible_labels[0])
+
     def update_remove_by_color_menu(self):
         # Clear the current menu items
         self.remove_by_color_menu.delete(0, tk.END)
         
+        # Add a stub entry for removing by "No Color"
+        self.remove_by_color_menu.add_command(label="Remove No Color", command=self.remove_tags_by_no_color)
+
         # Get the current color scheme from self.color_mapping
         scheme = 'danbooru'  # Adjust based on your application's current scheme
         for group_number, colors in self.color_mapping[scheme].items():
             color_name = colors[0]  # Assuming the first entry is the color name
             self.remove_by_color_menu.add_command(label=f"Remove {color_name}", command=lambda c=color_name: self.remove_tags_by_color(c))
+
+    def remove_tags_by_no_color(self):
+        # Iterate through all image labels
+        for label in self.image_labels:
+            if label in self.tag_map:
+                # Filter out tags that are not included in tag_colors
+                tags_to_keep = [tag for tag in self.tag_map[label] if self.tag_colors.get(tag, "black") == "black"]
+                self.tag_map[label] = tags_to_keep
+                
+                # Update the tags file for the image
+                image_path = label.image_path
+                caption_path = image_path.rsplit('.', 1)[0] + '.txt'
+                with open(caption_path, 'w') as file:
+                    file.write(', '.join(tags_to_keep))
+                
+                # Update the tags display if the selected image's tags were changed
+                if label == self.selected_label:
+                    self.display_tags(image_path, self.count_tag_frequencies())
 
     def remove_tags_by_color(self, color_name):
         # Iterate through all image labels
@@ -173,6 +283,7 @@ class ImageGalleryApp:
         self.tags_text.bind("<B1-Motion>", lambda e: "break")
     
     def setup_key_bindings(self):
+        # Existing bindings
         self.root.bind("<Left>", lambda e: self.move_focus("left"))
         self.root.bind("<Right>", lambda e: self.move_focus("right"))
         self.root.bind("<Up>", lambda e: self.move_focus("up"))
@@ -181,9 +292,43 @@ class ImageGalleryApp:
         self.root.bind("<Tab>", self.handle_tab_press)
         self.root.bind("<Return>", self.handle_return_press)
         self.root.bind("<Delete>", self.handle_delete_press)
+        self.root.bind("<Control-v>", self.paste_from_clipboard)  # Bind Ctrl+V to paste_from_clipboard method
+        self.root.bind("<Control-x>", self.cut_to_clipboard)  # Bind Ctrl+X to cut_to_clipboard method
         self.progress_bar = ttk.Progressbar(self.grid_canvas, orient="horizontal", mode="determinate")
         self.progress_bar.pack(side="top", fill="x")
         self.progress_bar.pack_forget()
+
+    def cut_to_clipboard(self, event):
+        # Check if the focused widget is a text entry or text box to avoid interfering with normal text operations
+        focused_widget = self.root.focus_get()
+        if isinstance(focused_widget, (tk.Entry, tk.Text)):
+            return  # Do nothing if a text box or entry is focused
+
+        # Get clipboard content
+        clipboard_content = self.root.clipboard_get()
+        # Split the content into tags based on common delimiters like commas
+        tags_to_remove = [tag.strip() for tag in clipboard_content.replace('\n', ',').split(',') if tag.strip()]
+
+        # Remove these tags from the currently selected image
+        if self.selected_label and tags_to_remove:
+            self.remove_tags_from_image(self.selected_label, tags_to_remove)
+            self.display_tags(self.selected_label.image_path, self.count_tag_frequencies())
+
+    def paste_from_clipboard(self, event):
+        # Check if the focused widget is a text entry or text box to avoid interfering with normal text operations
+        focused_widget = self.root.focus_get()
+        if isinstance(focused_widget, (tk.Entry, tk.Text)):
+            return  # Do nothing if a text box or entry is focused
+
+        # Get clipboard content
+        clipboard_content = self.root.clipboard_get()
+        # Split the content into tags based on common delimiters like commas or new lines
+        tags_to_add = [tag.strip() for tag in clipboard_content.replace('\n', ',').split(',') if tag.strip()]
+
+        # Add these tags to the currently selected image
+        if self.selected_label and tags_to_add:
+            self.add_tags_to_image(self.selected_label, tags_to_add)
+            self.display_tags(self.selected_label.image_path, self.count_tag_frequencies())
 
     def handle_delete_press(self, event):
         focused_widget = self.root.focus_get()
@@ -707,14 +852,18 @@ class ImageGalleryApp:
     def delayed_tag_binding(self, image_path, tags):
         if self.selected_label and self.selected_label.image_path == image_path:
             for tag_label, tag in tags:
-                if tag_label.winfo_ismapped():  # Check if tag label still exists
-                    tag_label.bind("<Button-3>", lambda e, t=tag: self.tag_right_click_menu(e, t))
-                    tag_label.bind("<Button-1>", lambda e, t=tag: self.add_tag_to_filter_and_apply(t))
-                    hover_color = "blue"  # Color to show on mouse hover
+                try:
+                    if tag_label.winfo_ismapped():  # Check if tag label still exists
+                        tag_label.bind("<Button-3>", lambda e, t=tag: self.tag_right_click_menu(e, t))
+                        tag_label.bind("<Button-1>", lambda e, t=tag: self.add_tag_to_filter_and_apply(t))
+                        hover_color = "blue"  # Color to show on mouse hover
 
-                    # Add mouse-over and mouse-leave bindings
-                    tag_label.bind("<Enter>", lambda e, lbl=tag_label, t=tag: lbl.config(fg=hover_color))
-                    tag_label.bind("<Leave>", lambda e, lbl=tag_label, t=tag: lbl.config(fg=self.get_tag_original_color(t)))
+                        # Add mouse-over and mouse-leave bindings
+                        tag_label.bind("<Enter>", lambda e, lbl=tag_label, t=tag: lbl.config(fg=hover_color))
+                        tag_label.bind("<Leave>", lambda e, lbl=tag_label, t=tag: lbl.config(fg=self.get_tag_original_color(t)))
+                except tk.TclError:  # Use 'tk' to reference TclError
+                    # If the widget no longer exists, ignore and continue
+                    continue
 
     def get_tag_original_color(self, tag):
         # Determine the original color of the tag based on dark mode setting
