@@ -83,8 +83,32 @@ class ImageGalleryApp:
         self.filter_by_color_menu = tk.Menu(self.tools_menu, tearoff=0)
         self.tools_menu.add_cascade(label="Filter by Color", menu=self.filter_by_color_menu)
         self.update_filter_by_color_menu()
+        
+        # Add the new command under the filter options
+        self.tools_menu.add_command(label="Add all 'by ' tags to artist category", command=self.add_by_tags_to_artist_category)
 
         self.menu_bar.add_cascade(label="Tools", menu=self.tools_menu)
+    
+    def add_by_tags_to_artist_category(self):
+        if not hasattr(self, 'tags_csv_path') or not self.tags_csv_path:
+            tk.messagebox.showwarning("No Color Scheme", "Please load a color scheme before adding tags to categories.")
+            return
+        # Determine the scheme
+        scheme = 'danbooru' if 'danbooru' in self.tags_csv_path else 'e621'
+        artist_group_number = '1'  # For both schemes, '1' corresponds to artist group
+        # Collect all tags starting with 'by '
+        by_tags = set()
+        for tags in self.tag_map.values():
+            for tag in tags:
+                if tag.startswith('by '):
+                    by_tags.add(tag)
+        # For each such tag, add to artist category
+        for tag in by_tags:
+            self.add_tag_to_color(tag, artist_group_number)
+        # Refresh the tags display for the selected image, if any
+        if self.selected_label:
+            image_path = self.selected_label.image_path
+            self.display_tags(image_path, self.count_tag_frequencies())
     
     def update_filter_by_color_menu(self):
         # Clear the current menu items
@@ -187,8 +211,11 @@ class ImageGalleryApp:
         # Iterate through all image labels
         for label in self.image_labels:
             if label in self.tag_map:
-                # Filter out tags that are not included in tag_colors
-                tags_to_keep = [tag for tag in self.tag_map[label] if self.tag_colors.get(tag, "black") == "black"]
+                # Keep tags that start with 'score_', 'source_', or 'by ', and tags that have a defined color
+                tags_to_keep = [tag for tag in self.tag_map[label] 
+                                if tag.startswith(('score_', 'source_', 'by ')) or self.tag_colors.get(tag, "black") != "black"]
+                
+                # Update the tag map with the tags that are to be kept
                 self.tag_map[label] = tags_to_keep
                 
                 # Update the tags file for the image
@@ -231,7 +258,91 @@ class ImageGalleryApp:
         self.tools_menu.add_command(label="Convert Tags to Lowercase in Selected Image", command=self.convert_tags_to_lowercase_selected)
         self.tools_menu.add_command(label="Convert Tags to Lowercase in Visible Images", command=self.convert_tags_to_lowercase_visible)
         self.tools_menu.add_command(label="Convert Tags to Lowercase in All Images", command=self.convert_tags_to_lowercase_all)
-    
+        self.tools_menu.add_command(label="Remove Tags with Count 1", command=self.remove_tags_by_count_1)
+        self.tools_menu.add_command(label="Show Tag Frequencies", command=self.show_tag_frequencies)
+
+    def show_tag_frequencies(self):
+        # Create a new Toplevel window
+        popup = tk.Toplevel(self.root)
+        popup.title("Tag Frequencies")
+        popup.geometry("400x600")  # Adjust size as needed
+
+        # Make the window resizable
+        popup.resizable(True, True)
+
+        # Create a scrollable Text widget
+        text_widget = tk.Text(popup, wrap='word', state='disabled')
+        text_widget.pack(fill='both', expand=True)
+
+        # Add a scrollbar to the text widget
+        scrollbar = tk.Scrollbar(text_widget, command=text_widget.yview)
+        scrollbar.pack(side='right', fill='y')
+        text_widget.configure(yscrollcommand=scrollbar.set)
+
+        # Count tag frequencies
+        tag_freq = self.count_tag_frequencies()
+
+        # Sort tags by frequency, descending
+        sorted_tags = sorted(tag_freq.items(), key=lambda x: x[1], reverse=True)
+
+        # Enable editing to insert content
+        text_widget.config(state='normal')
+
+        # Create tag labels
+        tag_labels = []
+        for tag, freq in sorted_tags:
+            tag_color = self.tag_colors.get(tag, "black")
+            btn_fg = "white" if self.dark_mode_enabled.get() and tag_color == "black" else tag_color
+            btn_bg = "gray25" if self.dark_mode_enabled.get() else "SystemButtonFace"
+
+            # Create a frame and label for each tag
+            tag_frame = tk.Frame(text_widget, bg=btn_bg)
+            tag_label = tk.Label(tag_frame, text=f"{tag} ({freq})", fg=btn_fg, bg=btn_bg, cursor="hand2")
+            tag_label.pack(side="left", padx=2)
+            tag_frame.pack(side="top", anchor='w')
+
+            # Bind click event to filter by tag
+            tag_label.bind("<Button-1>", lambda e, t=tag: self.add_tag_to_filter_and_apply(t))
+
+            # Optional: Add hover effect
+            tag_label.bind("<Enter>", lambda e, lbl=tag_label: lbl.config(fg="blue"))
+            tag_label.bind("<Leave>", lambda e, lbl=tag_label, orig_color=btn_fg: lbl.config(fg=orig_color))
+
+            tag_labels.append((tag_label, tag))
+
+            text_widget.window_create("end", window=tag_frame)
+            text_widget.insert("end", "\n")
+
+        # Disable editing after inserting content
+        text_widget.config(state='disabled')
+
+        # Make the popup non-modal
+        popup.transient(self.root)
+
+    def remove_tags_by_count_1(self):
+        # Count the occurrences of all tags across the dataset
+        tag_freq = self.count_tag_frequencies()
+
+        # Find all tags that appear only once
+        tags_to_remove = [tag for tag, count in tag_freq.items() if count == 1]
+
+        # Iterate over all image labels and remove tags that appear only once
+        for label in self.image_labels:
+            if label in self.tag_map:
+                image_tags = self.tag_map[label]
+                updated_tags = [tag for tag in image_tags if tag not in tags_to_remove]
+                self.tag_map[label] = updated_tags
+                
+                # Update the tags file for the image
+                image_path = label.image_path
+                caption_path = image_path.rsplit('.', 1)[0] + '.txt'
+                with open(caption_path, 'w') as file:
+                    file.write(', '.join(updated_tags))
+                
+                # Update the tags display if the selected image's tags were changed
+                if label == self.selected_label:
+                    self.display_tags(image_path, self.count_tag_frequencies())
+
     def initialize_variables(self):
         self.image_labels = []
         self.tag_freq = {}
@@ -901,14 +1012,12 @@ class ImageGalleryApp:
         menu.add_command(label="Copy to Clipboard", command=lambda: self.copy_to_clipboard(tag))
         menu.add_separator()
 
-        # Submenu for Add to Color
-        color_menu = tk.Menu(menu, tearoff=0)
-        for key, colors in self.color_mapping['danbooru'].items():
-            # The color name is a combination of colors for visualization
+        # Directly add the "Add Tag to Type" options to the main menu
+        scheme = 'danbooru'  # Adjust based on your application's context
+        for key, colors in self.color_mapping[scheme].items():
+            # The color name is used for the label
             color_name = f"{self.color_classes[colors[0]]}"
-            # The submenu will call the stubbed method with the tag and key
-            color_menu.add_command(label=color_name, command=lambda key=key: self.add_tag_to_color(tag, key))
-        menu.add_cascade(label="Add Tag to Type", menu=color_menu)
+            menu.add_command(label=f"Add to {color_name}", command=lambda key=key: self.add_tag_to_color(tag, key))
 
         # Display the menu at the cursor's position
         menu.tk_popup(event.x_root, event.y_root)
@@ -1299,6 +1408,11 @@ class ImageGalleryApp:
         self.tag_add_dropdown = tk.OptionMenu(self.tag_entry_frame, self.tag_add_scope, *self.tag_add_options)
         self.tag_add_dropdown.pack(side="left", padx=5)
 
+        # Checkbox for prepend tags
+        self.prepend_tags_var = tk.BooleanVar(value=False)
+        self.prepend_tags_checkbox = tk.Checkbutton(self.tag_entry_frame, text="Prepend Tags", variable=self.prepend_tags_var)
+        self.prepend_tags_checkbox.pack(side="left")
+
         # Add tag button
         self.add_tag_button = tk.Button(self.tag_entry_frame, text="Add Tag", command=self.add_tag)
         self.add_tag_button.pack(side="left", padx=5)
@@ -1326,7 +1440,10 @@ class ImageGalleryApp:
             updated = False
             for new_tag in tags:
                 if new_tag and new_tag not in image_tags:
-                    image_tags.append(new_tag)
+                    if self.prepend_tags_var.get():
+                        image_tags.insert(0, new_tag)  # Prepend new tag
+                    else:
+                        image_tags.append(new_tag)  # Append new tag
                     updated = True
 
             if updated:
